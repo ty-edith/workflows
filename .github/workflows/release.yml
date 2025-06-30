@@ -1,0 +1,116 @@
+name: Release
+
+permissions:
+  id-token: write
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      image_url:
+        description: "The Docker image URL to deploy"
+        required: true
+        type: string
+      environment:
+        description: "Deployment environment (test, production)"
+        required: true
+        type: string
+      migrate:
+        description: "Whether to run database migrations"
+        required: false
+        type: boolean
+        default: false
+      project_id:
+        description: "GCP project ID"
+        required: true
+        type: string
+      service_account:
+        description: "GCP service account for authentication"
+        required: true
+        type: string
+      workload_identity_provider:
+        description: "Full provider resource name (e.g. projects/302…/providers/github)"
+        required: true
+        type: string
+      region:
+        description: "GCP region"
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify env values file
+        run: |
+          if [ ! -f ".github/resources/env/${{ inputs.environment }}.values.yaml" ]; then
+            echo "Error: Missing .github/resources/env/${{ inputs.environment }}.values.yaml"
+            exit 1
+          fi
+
+      - name: Install ytt
+        run: curl -L https://carvel.dev/install.sh | bash
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          service_account: ${{ inputs.service_account }}
+          workload_identity_provider: ${{ inputs.workload_identity_provider }}
+
+      - name: Setup gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ inputs.project_id }}
+
+      - name: Render Cloud Run Job YAML
+        if: ${{ inputs.migrate }}
+        run: |
+          ytt \
+            -f .github/resources/migration.job.yaml \
+            --data-values-file .github/resources/values.yaml \
+            --data-values-file .github/resources/env/${{ inputs.environment }}.values.yaml \
+            --data-value image_url=${{ inputs.image_url }} \
+            --data-value commit_sha=${{ github.sha }} \
+            --data-value service_account=${{ inputs.service_account }} \
+            > /tmp/migration.job.yaml
+
+      - name: Deploy (replace) migration Job
+        if: ${{ inputs.migrate }}
+        run: |
+          gcloud run jobs replace /tmp/migration.job.yaml \
+            --region=${{ inputs.region }}
+
+      - name: Execute migration Job
+        if: ${{ inputs.migrate }}
+        run: |
+          gcloud run jobs execute ${{ github.event.repository.name }}-migration \
+            --region=${{ inputs.region }} \
+            --wait
+
+      - name: Render Cloud Run Service YAML
+        run: |
+          ytt \
+            -f .github/resources/service.yaml \
+            --data-values-file .github/resources/values.yaml \
+            --data-values-file .github/resources/env/${{ inputs.environment }}.values.yaml \
+            --data-value image_url=${{ inputs.image_url }} \
+            --data-value commit_sha=${{ github.sha }} \
+            --data-value service_account=${{ inputs.service_account }} \
+            > /tmp/service.yaml
+
+      - name: Deploy Cloud Run Service
+        run: |
+          gcloud run services replace /tmp/service.yaml \
+            --region=${{ inputs.region }}
+
+      - name: Deployment summary
+        run: |
+          echo "🚀 Deployment complete!"
+          echo "Service URL: $(gcloud run services describe ${{ github.event.repository.name }} --region=${{ inputs.region }} --format='value(status.url)')"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Image: ${{ inputs.image_url }}"
+          echo "Environment: ${{ inputs.environment }}"

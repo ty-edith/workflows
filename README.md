@@ -1,228 +1,177 @@
-# Build and Push Docker Image GitHub Action
+# GitHub Actions Workflows
 
-A reusable GitHub Action workflow for building and pushing Docker images to Google Cloud Artifact Registry.
+This repository contains reusable GitHub Actions workflows for building, deploying, and managing applications on Google Cloud Platform (GCP) using Cloud Run.
 
-## Features
+## Overview
 
-- 🐳 Build Docker images from your repository
-- 🚀 Push images to Google Cloud Artifact Registry
-- 🔐 Secure authentication using Workload Identity Federation
-- 🏷️ Flexible tagging with custom tags or automatic SHA-based tags
-- 📦 Configurable Artifact Registry repository
+The workflows in this repository provide a complete CI/CD pipeline for containerized applications:
+
+1. **Build and Push** - Builds Docker images and pushes them to Google Artifact Registry
+2. **Release** - Deploys applications to Cloud Run with optional database migrations
+
+## Workflows
+
+### 🏗️ Build and Push (`build-and-push.yml`)
+
+Builds a Docker image from your repository and pushes it to Google Artifact Registry.
+
+**Features:**
+
+- Builds Docker images using the Dockerfile in your repository root
+- Pushes to Google Artifact Registry
+- Supports custom tags or automatic SHA-based tagging
+- Configurable repository name
+
+**Outputs:**
+
+- `image-url`: The full URL of the built Docker image
+
+[View detailed documentation →](./docs/build-and-push.md)
+
+### 🚀 Release (`release.yml`)
+
+Deploys applications to Google Cloud Run with support for database migrations.
+
+**Features:**
+
+- Deploys to Cloud Run using declarative YAML templates
+- Optional database migration jobs
+- Environment-specific configurations
+- Supports both test and production deployments
+- Uses `ytt` for YAML templating
+
+[View detailed documentation →](./docs/release.md)
 
 ## Prerequisites
 
-Before using this workflow, ensure you have:
+### Google Cloud Setup
 
-1. **Google Cloud Project** with Artifact Registry enabled
-2. **Artifact Registry Repository** created in your GCP project
-3. **Workload Identity Pool and Provider** configured for GitHub Actions
-4. **Service Account** with appropriate permissions:
-   - `roles/artifactregistry.writer`
-   - `roles/storage.admin` (if using Cloud Storage for layers)
+1. **GCP Project**: You need a Google Cloud Project with the following APIs enabled:
+   - Cloud Run API
+   - Artifact Registry API
+   - Identity and Access Management (IAM) API
 
-## Setup
+2. **Service Account**: Create a service account with the following roles:
+   - Cloud Run Admin
+   - Artifact Registry Writer
+   - Service Account User
 
-### 1. Configure Workload Identity Federation
+3. **Workload Identity Federation**: Set up Workload Identity Federation to allow GitHub Actions to authenticate with Google Cloud without storing service account keys.
 
-Follow [Google's documentation](https://cloud.google.com/blog/products/identity-security/enabling-keyless-authentication-from-github-actions) to set up Workload Identity Federation for GitHub Actions.
+### Repository Setup
 
-### 2. Create Artifact Registry Repository
+1. **Dockerfile**: Your repository must contain a `Dockerfile` in the root directory
 
-```bash
-gcloud artifacts repositories create YOUR_REPOSITORY_NAME \
-    --repository-format=docker \
-    --location=YOUR_REGION \
-    --project=YOUR_PROJECT_ID
-```
+2. **YAML Templates** (for release workflow):
+   - `.github/resources/service.yaml` - Cloud Run service template
+   - `.github/resources/migration.job.yaml` - Migration job template (if using migrations)
+   - `.github/resources/values.yaml` - Base configuration values
+   - `.github/resources/env/{environment}.values.yaml` - Environment-specific values
 
-## Usage
+### GitHub Secrets
 
-### Basic Usage
+Configure the following secrets in your repository:
 
-Create a workflow in your repository that calls this reusable workflow:
+- `GCP_PROJECT_ID`: Your Google Cloud Project ID
+- `GCP_SERVICE_ACCOUNT`: Service account email
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`: Workload Identity Provider resource name
+- `GCP_REGION`: Google Cloud region (e.g., `us-central1`)
+
+## Usage Examples
+
+### Basic Build and Deploy
 
 ```yaml
-name: Build and Deploy
+name: CI/CD Pipeline
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
 
 jobs:
-  build-image:
-    uses: your-org/build-and-push-image/.github/workflows/build-and-push-docker.yml@main
+  build:
+    uses: ty-edith/workflows/.github/workflows/build-and-push.yml@v1
     with:
-      project_id: "your-gcp-project-id"
-      service_account: "github-actions@your-project.iam.gserviceaccount.com"
-      workload_identity_provider: "projects/123456789/locations/global/workloadIdentityPools/github/providers/github"
-      region: "us-central1"
-```
+      project_id: ${{ secrets.GCP_PROJECT_ID }}
+      service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      region: ${{ secrets.GCP_REGION }}
 
-### Advanced Usage with Custom Repository and Tag
-
-```yaml
-name: Build and Deploy
-
-on:
-  push:
-    tags: ['v*']
-
-jobs:
-  build-image:
-    uses: your-org/build-and-push-image/.github/workflows/build-and-push-docker.yml@main
-    with:
-      project_id: "your-gcp-project-id"
-      service_account: "github-actions@your-project.iam.gserviceaccount.com"
-      workload_identity_provider: "projects/123456789/locations/global/workloadIdentityPools/github/providers/github"
-      region: "us-central1"
-      repository: "my-custom-repository"
-      tag: ${{ github.ref_name }}
-  
   deploy:
-    needs: build-image
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to Cloud Run
-        run: |
-          echo "Deploying image: ${{ needs.build-image.outputs.image-url }}"
-          # Add your deployment logic here
+    needs: build
+    uses: ty-edith/workflows/.github/workflows/release.yml@v1
+    with:
+      image_url: ${{ needs.build.outputs.image-url }}
+      environment: production
+      project_id: ${{ secrets.GCP_PROJECT_ID }}
+      service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      region: ${{ secrets.GCP_REGION }}
 ```
 
-## Inputs
-
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `project_id` | GCP project ID | ✅ | - |
-| `service_account` | GCP service account email for authentication | ✅ | - |
-| `workload_identity_provider` | Full provider resource name | ✅ | - |
-| `region` | GCP region for Artifact Registry | ✅ | - |
-| `tag` | Custom tag for the Docker image | ❌ | SHA-based tag |
-| `repository` | Artifact Registry repository name | ❌ | `cloud-run-source-deploy` |
-
-## Outputs
-
-| Output | Description |
-|--------|-------------|
-| `image-url` | The full URL of the built Docker image |
-
-## Image Naming Convention
-
-The workflow generates image URLs using the following pattern:
-
-### With Custom Tag
-
-```text
-{region}-docker.pkg.dev/{project_id}/{repository}/{github.repository_owner}/{github.event.repository.name}:{tag}
-```
-
-### With SHA Tag (default)
-
-```text
-{region}-docker.pkg.dev/{project_id}/{repository}/{github.repository_owner}/{github.event.repository.name}/sha:{github.sha}
-```
-
-## Examples
-
-### Example 1: Simple Build on Push
+### Deploy with Database Migration
 
 ```yaml
-name: Build on Push
-
-on:
-  push:
-    branches: [main, develop]
-
-jobs:
-  build:
-    uses: your-org/build-and-push-image/.github/workflows/build-and-push-docker.yml@main
-    with:
-      project_id: "my-project-123"
-      service_account: "github-actions@my-project-123.iam.gserviceaccount.com"
-      workload_identity_provider: "projects/123456789/locations/global/workloadIdentityPools/github/providers/github"
-      region: "us-west1"
+deploy-with-migration:
+  needs: build
+  uses: ty-edith/workflows/.github/workflows/release.yml@v1
+  with:
+    image_url: ${{ needs.build.outputs.image-url }}
+    environment: production
+    migrate: true
+    project_id: ${{ secrets.GCP_PROJECT_ID }}
+    service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+    workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+    region: ${{ secrets.GCP_REGION }}
 ```
 
-### Example 2: Release Build with Version Tag
+## Best Practices
 
-```yaml
-name: Release Build
+1. **Environment Separation**: Use different GCP projects or service accounts for test and production environments
 
-on:
-  release:
-    types: [published]
+2. **Version Tagging**: Use semantic versioning for production deployments:
 
-jobs:
-  build-and-push:
-    uses: your-org/build-and-push-image/.github/workflows/build-and-push-docker.yml@main
-    with:
-      project_id: "my-project-123"
-      service_account: "github-actions@my-project-123.iam.gserviceaccount.com"
-      workload_identity_provider: "projects/123456789/locations/global/workloadIdentityPools/github/providers/github"
-      region: "europe-west1"
-      repository: "production-images"
-      tag: ${{ github.event.release.tag_name }}
-```
+   ```yaml
+   with:
+     tag: "v1.2.3"
+   ```
 
-### Example 3: Multi-Environment Setup
+3. **Security**:
 
-```yaml
-name: Multi-Environment Build
+   - Never store GCP credentials in repository secrets
+   - Use Workload Identity Federation for secure authentication
+   - Regularly rotate service account keys if using them
 
-on:
-  push:
-    branches: [main, staging, develop]
+4. **Monitoring**:
 
-jobs:
-  build:
-    uses: your-org/build-and-push-image/.github/workflows/build-and-push-docker.yml@main
-    with:
-      project_id: ${{ github.ref == 'refs/heads/main' && 'prod-project' || 'dev-project' }}
-      service_account: ${{ github.ref == 'refs/heads/main' && 'prod-sa@prod-project.iam.gserviceaccount.com' || 'dev-sa@dev-project.iam.gserviceaccount.com' }}
-      workload_identity_provider: "projects/123456789/locations/global/workloadIdentityPools/github/providers/github"
-      region: "us-central1"
-      repository: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
-      tag: ${{ github.ref_name }}
-```
+   - Set up Cloud Monitoring alerts for your deployments
+   - Use structured logging in your applications
+   - Monitor resource usage and costs
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Authentication Failed**
-   - Verify your Workload Identity Federation setup
-   - Ensure the service account has the correct permissions
-   - Check that the provider resource name is correct
-
-2. **Permission Denied**
-   - Verify the service account has `roles/artifactregistry.writer`
-   - Ensure the Artifact Registry repository exists
-   - Check that the repository is in the correct region
-
-3. **Docker Build Failed**
-   - Ensure your repository contains a valid `Dockerfile`
-   - Check that all required build files are committed to the repository
-
-4. **Invalid Image URL**
-   - Verify the project ID, region, and repository name are correct
-   - Check that special characters in repository names are properly handled
+1. **Authentication Errors**: Verify Workload Identity Federation is correctly configured
+2. **Permission Denied**: Ensure service account has necessary IAM roles
+3. **Image Not Found**: Check that the Artifact Registry repository exists
+4. **Migration Failures**: Verify migration job templates and database connectivity
 
 ### Getting Help
 
-- Check the [Google Cloud Artifact Registry documentation](https://cloud.google.com/artifact-registry/docs)
-- Review [GitHub Actions Workload Identity documentation](https://cloud.google.com/blog/products/identity-security/enabling-keyless-authentication-from-github-actions)
-- Examine the workflow run logs for detailed error messages
+- Check the GitHub Actions logs for detailed error messages
+- Review Google Cloud Console for resource status
+- Ensure all required APIs are enabled in your GCP project
 
 ## Contributing
 
-1. Fork this repository
-2. Create a feature branch
-3. Make your changes
-4. Test with a sample project
-5. Submit a pull request
+When contributing to these workflows:
+
+1. Test changes in a development environment first
+2. Update documentation for any new features or parameters
+3. Follow semantic versioning for releases
+4. Add appropriate error handling and logging
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+See [LICENSE](./LICENSE) file for details.
