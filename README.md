@@ -53,7 +53,7 @@ on:
 
 jobs:
   build-image:
-    uses: your-org/build-and-push-image/.github/workflows/build-and-push-docker.yml@main
+    uses: ty-edith/build-and-push-image@v1
     with:
       project_id: "your-gcp-project-id"
       service_account: "github-actions@your-project.iam.gserviceaccount.com"
@@ -72,7 +72,7 @@ on:
 
 jobs:
   build-image:
-    uses: your-org/build-and-push-image/.github/workflows/build-and-push-docker.yml@main
+    uses: ty-edith/build-and-push-image@v1
     with:
       project_id: "your-gcp-project-id"
       service_account: "github-actions@your-project.iam.gserviceaccount.com"
@@ -137,7 +137,7 @@ on:
 
 jobs:
   build:
-    uses: your-org/build-and-push-image/.github/workflows/build-and-push-docker.yml@main
+    uses: ty-edith/build-and-push-image@v1
     with:
       project_id: "my-project-123"
       service_account: "github-actions@my-project-123.iam.gserviceaccount.com"
@@ -156,7 +156,7 @@ on:
 
 jobs:
   build-and-push:
-    uses: your-org/build-and-push-image/.github/workflows/build-and-push-docker.yml@main
+    uses: ty-edith/build-and-push-image@v1
     with:
       project_id: "my-project-123"
       service_account: "github-actions@my-project-123.iam.gserviceaccount.com"
@@ -177,7 +177,7 @@ on:
 
 jobs:
   build:
-    uses: your-org/build-and-push-image/.github/workflows/build-and-push-docker.yml@main
+    uses: ty-edith/build-and-push-image@v1
     with:
       project_id: ${{ github.ref == 'refs/heads/main' && 'prod-project' || 'dev-project' }}
       service_account: ${{ github.ref == 'refs/heads/main' && 'prod-sa@prod-project.iam.gserviceaccount.com' || 'dev-sa@dev-project.iam.gserviceaccount.com' }}
